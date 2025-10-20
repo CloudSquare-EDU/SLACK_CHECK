@@ -1,0 +1,28 @@
+# Slack API
+slack-sdk==3.26.1
+
+# Google Sheets API
+google-api-python-client==2.108.0
+google-auth==2.25.2
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+
+# Environment variables
+python-dotenv==1.0.0
+
+# Data processing
+pandas==2.1.4
+
+# Logging
+colorlog==6.8.0
+
+# Web UI
+streamlit==1.31.0
+flask==3.0.0
+pyinstaller==6.3.0
+
+# Scheduler
+APScheduler==3.10.4
+
+# Image processing
+pillow==10.2.0

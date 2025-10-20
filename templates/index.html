@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>슬랙 출석체크 관리 시스템</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        /* 이모지 폰트 보정 */
+        .emoji {
+            font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji', sans-serif;
+            font-style: normal;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><span class="emoji">📊</span> 슬랙 출석체크 관리 시스템</h1>
+            <p class="subtitle">여러 워크스페이스를 한 곳에서 관리하세요</p>
+        </header>
+
+        <main>
+            <!-- 워크스페이스 선택 -->
+            <section class="card">
+                <h2>1️⃣ 워크스페이스 선택</h2>
+                <div style="display: flex; gap: 10px; align-items: flex-start; margin-bottom: 15px;">
+                    <select id="workspace-select" class="form-control" style="flex: 1;">
+                        <option value="">워크스페이스를 선택하세요...</option>
+                    </select>
+                    <button id="add-workspace-btn" class="btn btn-primary">➕ 추가</button>
+                    <button id="delete-workspace-btn" class="btn btn-danger" style="display: none;">🗑️ 삭제</button>
+                </div>
+                <div id="workspace-info" class="info-box" style="display: none;">
+                    <p><strong>채널 ID:</strong> <span id="channel-id"></span></p>
+                    <p><strong>시트 이름:</strong> <span id="sheet-name"></span></p>
+                </div>
+            </section>
+
+            <!-- 워크스페이스 추가 모달 -->
+            <div id="add-workspace-modal" class="modal" style="display: none;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>➕ 새 워크스페이스 추가</h2>
+                        <span class="modal-close">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="new-workspace-name">워크스페이스 폴더 이름 *</label>
+                            <input type="text" id="new-workspace-name" class="form-control" placeholder="예: 이기니, lgini, 테스트">
+                            <small>폴더 이름으로 사용됩니다. 한글, 영문, 숫자 사용 가능 (일부 특수문자 제외: < > : " / \ | ? *)</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="new-display-name">표시 이름 *</label>
+                            <input type="text" id="new-display-name" class="form-control" placeholder="예: 이기니 워크스페이스">
+                            <small>웹 UI에 표시될 이름</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="new-bot-token">Slack Bot Token *</label>
+                            <div style="display: flex; gap: 10px; margin-bottom: 8px;">
+                                <button type="button" id="load-token-btn" class="btn btn-secondary" style="flex: 0 0 auto;">📂 파일 불러오기</button>
+                                <input type="file" id="token-file-input" accept=".txt,.json" style="display: none;">
+                                <button type="button" id="clear-token-btn" class="btn btn-secondary" style="flex: 0 0 auto;">🗑️ 초기화</button>
+                            </div>
+                            <input type="text" id="new-bot-token" class="form-control" placeholder="xoxb-...">
+                            <small>Slack App의 Bot User OAuth Token (직접 입력 또는 파일로 불러오기)</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="new-channel-id">Slack Channel ID *</label>
+                            <input type="text" id="new-channel-id" class="form-control" placeholder="C01234567">
+                            <small>출석체크를 진행할 채널의 ID</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="new-spreadsheet-id">Google Spreadsheet ID *</label>
+                            <input type="text" id="new-spreadsheet-id" class="form-control" placeholder="1A2B3C4D5E6F7G8H9I0J1K2L3M4N5O6P">
+                            <small>구글 시트 URL의 ID 부분</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="new-sheet-name">시트 이름</label>
+                            <input type="text" id="new-sheet-name" class="form-control" value="Sheet1">
+                            <small>출석 데이터가 있는 시트 탭 이름 (기본: Sheet1)</small>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="new-name-column">이름 열</label>
+                                <input type="text" id="new-name-column" class="form-control small" value="B" maxlength="2">
+                                <small>학생 이름이 있는 열 (예: B)</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="new-start-row">시작 행</label>
+                                <input type="number" id="new-start-row" class="form-control small" value="4" min="1">
+                                <small>데이터 시작 행 번호 (학생 이름이 시작되는 행)</small>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="new-credentials">Google Credentials JSON *</label>
+                            <div style="display: flex; gap: 10px; margin-bottom: 8px;">
+                                <button type="button" id="load-credentials-btn" class="btn btn-secondary" style="flex: 0 0 auto;">📂 파일 불러오기</button>
+                                <input type="file" id="credentials-file-input" accept=".json" style="display: none;">
+                                <button type="button" id="clear-credentials-btn" class="btn btn-secondary" style="flex: 0 0 auto;">🗑️ 초기화</button>
+                            </div>
+                            <textarea id="new-credentials" class="form-control" rows="8" placeholder='{"type": "service_account", "project_id": "...", ...}'></textarea>
+                            <small>구글 서비스 계정 JSON 키를 직접 붙여넣거나 파일로 불러올 수 있습니다</small>
+                        </div>
+
+                        <div class="info-box" style="margin-top: 15px;">
+                            <p><strong>💡 도움말:</strong></p>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                <li><strong>Slack Bot Token:</strong> Slack App 설정 → OAuth & Permissions → Bot User OAuth Token</li>
+                                <li><strong>Channel ID:</strong> 슬랙 채널 우클릭 → 링크 복사 → 마지막 부분 (C로 시작)</li>
+                                <li><strong>Spreadsheet ID:</strong> 구글 시트 URL에서 /d/ 다음 부분</li>
+                                <li><strong>Credentials JSON:</strong> Google Cloud Console → 서비스 계정 → 키 생성 → JSON 다운로드</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button id="cancel-add-workspace-btn" class="btn btn-secondary">취소</button>
+                        <button id="submit-add-workspace-btn" class="btn btn-success">✓ 워크스페이스 추가</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 스레드 선택 -->
+            <section class="card">
+                <h2>2️⃣ 출석체크 스레드 선택</h2>
+                <div class="radio-group">
+                    <label>
+                        <input type="radio" name="thread-mode" value="auto" checked>
+                        자동 감지 (최신 출석 스레드 찾기)
+                    </label>
+                    <label>
+                        <input type="radio" name="thread-mode" value="manual">
+                        수동 입력
+                    </label>
+                </div>
+
+                <div id="auto-detect-section">
+                    <button id="find-thread-btn" class="btn btn-primary">🔍 최신 출석 스레드 찾기</button>
+                    <div id="thread-found" class="success-box" style="display: none;">
+                        <p><strong>✓ 스레드 찾음:</strong></p>
+                        <p id="thread-text"></p>
+                        <code id="thread-ts-display"></code>
+                    </div>
+                </div>
+
+                <div id="manual-input-section" style="display: none;">
+                    <input type="text" id="thread-input" class="form-control"
+                           placeholder="스레드 링크 또는 Thread TS 입력">
+                    <small>예: https://workspace.slack.com/archives/.../p... 또는 1234567890.123456</small>
+                </div>
+
+                <input type="hidden" id="thread-ts" value="">
+                <input type="hidden" id="thread-user" value="">
+            </section>
+
+            <!-- 출석체크 설정 (수동 실행용) -->
+            <section class="card">
+                <h2>3️⃣ 수동 출석체크 설정</h2>
+                <p class="subtitle-small">⚡ <strong>지금 바로 실행</strong>할 때 사용 (아래 "▶️ 출석체크 시작" 버튼으로 즉시 실행)</p>
+
+                <div class="form-group">
+                    <label for="column-input">출석체크할 열</label>
+                    <input type="text" id="column-input" class="form-control small"
+                           value="K" maxlength="2" placeholder="K">
+                    <small>구글 시트에서 출석을 표시할 열 (예: H, K, L)</small>
+                </div>
+
+                <div class="checkbox-group">
+                    <label>
+                        <input type="checkbox" id="mark-absent" checked>
+                        미출석자에게 'X' 표시
+                    </label>
+                    <label>
+                        <input type="checkbox" id="send-thread-reply" checked>
+                        스레드에 완료 댓글 작성
+                    </label>
+                    <label>
+                        <input type="checkbox" id="send-dm" checked>
+                        작성자에게 DM 전송
+                    </label>
+                </div>
+            </section>
+
+            <!-- 자동 실행 스케줄 -->
+            <section class="card">
+                <h2>⏰ 자동 실행 스케줄 (선택사항)</h2>
+                <p class="subtitle-small">⏱️ <strong>예약 시간에 자동 실행</strong> ("💾 스케줄 저장"으로 예약 등록, 즉시 실행되지 않음)</p>
+
+                <div class="info-box" style="margin-bottom: 15px;">
+                    <p><strong>⚠️ 중요:</strong> 자동 실행이 작동하려면 <strong>프로그램(Flask 앱)이 계속 실행 중이어야 합니다.</strong></p>
+                    <p>프로그램을 종료하면 스케줄도 중단됩니다.</p>
+                </div>
+
+                <div class="checkbox-group">
+                    <label>
+                        <input type="checkbox" id="auto-schedule-enabled">
+                        자동 실행 활성화
+                    </label>
+                </div>
+
+                <div id="schedule-settings" style="display: none;">
+                    <div class="schedule-section">
+                        <h3>📝 출석 스레드 자동 생성</h3>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="create-thread-day">요일</label>
+                                <select id="create-thread-day" class="form-control">
+                                    <option value="">선택하세요...</option>
+                                    <option value="mon">월요일</option>
+                                    <option value="tue">화요일</option>
+                                    <option value="wed">수요일</option>
+                                    <option value="thu">목요일</option>
+                                    <option value="fri">금요일</option>
+                                    <option value="sat">토요일</option>
+                                    <option value="sun">일요일</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="create-thread-time">시간 (한국 시간)</label>
+                                <input type="time" id="create-thread-time" class="form-control">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="thread-message">스레드 메시지</label>
+                            <textarea id="thread-message" class="form-control" rows="3"
+                                      placeholder="📢 출석 스레드입니다.&#10;&#10;&quot;이름/출석했습니다&quot; 형식으로 댓글 달아주세요!"></textarea>
+                            <small>출석 스레드 생성 시 보낼 메시지 (기본값: 📢 출석 스레드입니다.)</small>
+                        </div>
+                    </div>
+
+                    <div class="schedule-section">
+                        <h3>📊 출석 집계 자동 실행</h3>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="check-attendance-day">요일</label>
+                                <select id="check-attendance-day" class="form-control">
+                                    <option value="">선택하세요...</option>
+                                    <option value="mon">월요일</option>
+                                    <option value="tue">화요일</option>
+                                    <option value="wed">수요일</option>
+                                    <option value="thu">목요일</option>
+                                    <option value="fri">금요일</option>
+                                    <option value="sat">토요일</option>
+                                    <option value="sun">일요일</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="check-attendance-time">시간 (한국 시간)</label>
+                                <input type="time" id="check-attendance-time" class="form-control">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="check-attendance-column">시작 열 (현재 열)</label>
+                                <input type="text" id="check-attendance-column" class="form-control small"
+                                       value="K" maxlength="2" placeholder="K">
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label for="completion-message">출석 완료 댓글 메시지</label>
+                            <textarea id="completion-message" class="form-control" rows="2"
+                                      placeholder="[자동] 출석 체크를 완료했습니다.&#10;출석: {present}명 / 미출석: {absent}명"></textarea>
+                            <small>출석 집계 완료 시 스레드에 댓글로 보낼 메시지<br>
+                                사용 가능한 변수: <code>{present}</code> (출석자 수), <code>{absent}</code> (미출석자 수), <code>{total}</code> (총 인원)</small>
+                        </div>
+
+                        <div class="checkbox-group" style="margin-top: 15px;">
+                            <label>
+                                <input type="checkbox" id="auto-column-enabled">
+                                자동 열 증가 모드 활성화
+                            </label>
+                        </div>
+
+                        <div id="auto-column-settings" style="display: none; margin-top: 15px; padding: 15px; background: rgba(0, 122, 255, 0.05); border-radius: 10px; border: 1px solid rgba(0, 122, 255, 0.2);">
+                            <p style="margin-bottom: 12px; color: #007aff; font-weight: 500;">
+                                📅 매 실행마다 자동으로 열이 증가합니다
+                            </p>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="start-column">시작 열</label>
+                                    <input type="text" id="start-column" class="form-control small"
+                                           value="H" maxlength="2" placeholder="H">
+                                    <small>출석체크를 시작할 첫 번째 열</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="end-column">끝 열</label>
+                                    <input type="text" id="end-column" class="form-control small"
+                                           value="P" maxlength="2" placeholder="P">
+                                    <small>출석체크를 종료할 마지막 열</small>
+                                </div>
+                            </div>
+                            <div class="info-box" style="margin-top: 10px;">
+                                <p><strong>💡 작동 방식:</strong></p>
+                                <p style="margin: 5px 0;">• 1주차: H열 → 2주차: I열 → 3주차: J열 → ...</p>
+                                <p style="margin: 5px 0; color: #d9534f; font-weight: 500;">• <strong>끝 열에 도달하면 자동으로 스케줄이 비활성화됩니다</strong></p>
+                                <p style="margin: 5px 0;">• <strong>위 "시작 열"</strong>이 현재 출석체크할 열입니다</p>
+                                <p style="margin: 5px 0; color: #007aff;">• ✉️ 스케줄 완료 시 DM으로 알림을 받게 됩니다</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="notification-user-id">알림 수신자 (선택)</label>
+                        <input type="text" id="notification-user-id" class="form-control"
+                               placeholder="이메일 주소 또는 User ID (빈칸이면 스레드 작성자에게 전송)">
+                        <div class="info-box" style="margin-top: 8px; padding: 10px; font-size: 0.9rem;">
+                            <p><strong>💡 두 가지 방법 모두 사용 가능:</strong></p>
+
+                            <div style="margin: 10px 0; padding: 10px; background: #e8f5e9; border-radius: 4px;">
+                                <p><strong>✅ 방법 1: 이메일 주소 (추천)</strong></p>
+                                <p style="margin: 5px 0;">
+                                    슬랙 프로필에서 보이는 이메일 주소를 그대로 입력<br>
+                                    예: <code>kzm0502@igini.co.kr</code>
+                                </p>
+                            </div>
+
+                            <div style="margin: 10px 0; padding: 10px; background: #fff3cd; border-radius: 4px;">
+                                <p><strong>✅ 방법 2: User ID</strong></p>
+                                <p style="margin: 5px 0;">
+                                    <code>U</code>로 시작하는 ID 입력<br>
+                                    예: <code>U09L9UWC5L6</code>
+                                </p>
+                            </div>
+
+                            <p style="margin-top: 8px; color: #d9534f;">
+                                ❌ <strong>잘못된 형식:</strong> <code>D</code>나 <code>C</code>로 시작하는 채널 ID
+                            </p>
+                        </div>
+                    </div>
+
+                    <button id="save-schedule-btn" class="btn btn-primary">💾 스케줄 저장 (예약 등록, 즉시 실행 아님)</button>
+                </div>
+            </section>
+
+            <!-- 예약 현황 -->
+            <section class="card" id="schedule-status-section" style="display: none;">
+                <h2>📅 예약 현황</h2>
+                <div id="schedule-status-content">
+                    <p class="text-center">예약된 스케줄이 없습니다.</p>
+                </div>
+                <button id="refresh-schedule-btn" class="btn btn-primary" style="margin-top: 15px;">🔄 새로고침</button>
+            </section>
+
+            <!-- 실행 버튼 -->
+            <section class="card">
+                <button id="run-btn" class="btn btn-success btn-large">▶️ 출석체크 시작 (지금 바로 실행)</button>
+                <p style="text-align: center; margin-top: 10px; color: #666; font-size: 0.9rem;">
+                    위에서 설정한 워크스페이스, 스레드, 열로 즉시 실행됩니다
+                </p>
+            </section>
+
+            <!-- 진행 상황 -->
+            <section id="progress-section" class="card" style="display: none;">
+                <h2>📊 진행 상황</h2>
+                <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
+                <p id="progress-text" class="progress-text">준비 중...</p>
+            </section>
+
+            <!-- 결과 -->
+            <section id="result-section" class="card" style="display: none;">
+                <h2>🎉 출석체크 완료</h2>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-total">0</div>
+                        <div class="stat-label">총 인원</div>
+                    </div>
+                    <div class="stat-card stat-success">
+                        <div class="stat-value" id="stat-present">0</div>
+                        <div class="stat-label">출석</div>
+                    </div>
+                    <div class="stat-card stat-danger">
+                        <div class="stat-value" id="stat-absent">0</div>
+                        <div class="stat-label">미출석</div>
+                    </div>
+                    <div class="stat-card stat-info">
+                        <div class="stat-value" id="stat-rate">0%</div>
+                        <div class="stat-label">출석률</div>
+                    </div>
+                </div>
+
+                <div class="result-details">
+                    <div class="detail-box">
+                        <h3>✅ 출석자</h3>
+                        <div id="present-list" class="name-list"></div>
+                    </div>
+                    <div class="detail-box">
+                        <h3>❌ 미출석자</h3>
+                        <div id="absent-list" class="name-list"></div>
+                    </div>
+                </div>
+
+                <div id="unmatched-section" class="warning-box" style="display: none;">
+                    <h3>⚠️ 명단에 없는 이름</h3>
+                    <div id="unmatched-list" class="name-list"></div>
+                </div>
+
+                <div id="notifications-section" class="info-box" style="display: none;">
+                    <h3>📢 알림</h3>
+                    <ul id="notifications-list"></ul>
+                </div>
+            </section>
+
+            <!-- 오류 메시지 -->
+            <section id="error-section" class="card error-box" style="display: none;">
+                <h2>❌ 오류 발생</h2>
+                <p id="error-message"></p>
+            </section>
+        </main>
+
+        <footer>
+            <p>슬랙 출석체크 자동화 시스템 v2.0</p>
+            <p>Made with Flask & Python</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
