@@ -166,12 +166,8 @@ def add_workspace():
             "notification_user_id": "",
             "auto_schedule": {
                 "enabled": False,
-                "create_thread_day": "",
-                "create_thread_time": "",
-                "create_thread_message": "📢 출석 스레드입니다.\n\n\"이름/출석했습니다\" 형식으로 댓글 달아주세요!",
-                "check_attendance_day": "",
-                "check_attendance_time": "",
-                "check_attendance_column": "K",
+                "schedules": [],
+                "create_thread_message": "@channel\n📢 출석 스레드입니다.\n\n\"이름/출석했습니다\" 형식으로 댓글 달아주세요!",
                 "check_completion_message": "[자동] 출석 체크를 완료했습니다.\n출석: {present}명 / 미출석: {absent}명",
                 "auto_column_enabled": False,
                 "start_column": "H",
@@ -321,9 +317,10 @@ def run_attendance():
                 'error': '댓글을 가져올 수 없습니다.'
             }), 500
 
-        # 6. 출석 파싱
+        # 6. 출석 파싱 (동명이인 정보 전달)
         parser = AttendanceParser()
-        attendance_list = parser.parse_attendance_replies(replies)
+        duplicate_names = workspace.duplicate_names if hasattr(workspace, 'duplicate_names') else {}
+        attendance_list = parser.parse_attendance_replies(replies, duplicate_names)
 
         if not attendance_list:
             return jsonify({
@@ -365,7 +362,18 @@ def run_attendance():
 
         for attendance in attendance_list:
             name = attendance['name']
-            if name in students:
+            sheet_row = attendance.get('sheet_row')  # 동명이인인 경우 직접 지정된 행 번호
+
+            # 동명이인으로 직접 행 번호가 지정된 경우
+            if sheet_row is not None:
+                updates.append({
+                    'name': name,
+                    'row': sheet_row,
+                    'column': column_index,
+                    'status': AttendanceStatus.PRESENT
+                })
+                matched_names.append(name)
+            elif name in students:
                 row = students[name]
                 updates.append({
                     'name': name,
@@ -479,27 +487,29 @@ def get_all_schedules():
     """모든 워크스페이스의 예약 현황 조회"""
     try:
         workspaces = workspace_manager.get_all_workspaces()
-        schedules = []
+        result_schedules = []
 
         for workspace in workspaces:
-            schedule = workspace.auto_schedule
+            schedule_config = workspace.auto_schedule
 
-            if schedule and schedule.get('enabled'):
-                schedules.append({
-                    'workspace_name': workspace.display_name,
-                    'folder_name': workspace.name,
-                    'create_thread_day': schedule.get('create_thread_day', ''),
-                    'create_thread_time': schedule.get('create_thread_time', ''),
-                    'check_attendance_day': schedule.get('check_attendance_day', ''),
-                    'check_attendance_time': schedule.get('check_attendance_time', ''),
-                    'check_attendance_column': schedule.get('check_attendance_column', ''),
-                    'notification_user_id': workspace.notification_user_id or ''
-                })
+            if schedule_config and schedule_config.get('enabled'):
+                schedules_list = schedule_config.get('schedules', [])
+
+                for schedule_item in schedules_list:
+                    result_schedules.append({
+                        'workspace_name': workspace.display_name,
+                        'folder_name': workspace.name,
+                        'day': schedule_item.get('day', ''),
+                        'create_thread_time': schedule_item.get('create_thread_time', ''),
+                        'check_attendance_time': schedule_item.get('check_attendance_time', ''),
+                        'check_attendance_column': schedule_item.get('check_attendance_column', ''),
+                        'notification_user_id': workspace.notification_user_id or ''
+                    })
 
         return jsonify({
             'success': True,
-            'schedules': schedules,
-            'total': len(schedules)
+            'schedules': result_schedules,
+            'total': len(result_schedules)
         })
 
     except Exception as e:
@@ -555,6 +565,110 @@ def save_schedule():
         }), 500
 
 
+@app.route('/api/duplicate-names/<workspace_name>', methods=['GET'])
+def get_duplicate_names(workspace_name):
+    """특정 워크스페이스의 동명이인 정보 가져오기"""
+    try:
+        workspace = workspace_manager.get_workspace(workspace_name)
+        if not workspace:
+            return jsonify({
+                'success': False,
+                'error': '워크스페이스를 찾을 수 없습니다.'
+            }), 404
+
+        duplicate_names = workspace.duplicate_names if hasattr(workspace, 'duplicate_names') else {}
+
+        return jsonify({
+            'success': True,
+            'duplicate_names': duplicate_names
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/duplicate-names/<workspace_name>', methods=['POST'])
+def save_duplicate_names(workspace_name):
+    """특정 워크스페이스의 동명이인 정보 저장 (이메일 → User ID 변환)"""
+    try:
+        data = request.json
+        duplicate_names_with_email = data.get('duplicate_names', {})
+
+        workspace = workspace_manager.get_workspace(workspace_name)
+        if not workspace:
+            return jsonify({
+                'success': False,
+                'error': '워크스페이스를 찾을 수 없습니다.'
+            }), 404
+
+        # Slack Handler 초기화
+        slack_handler = SlackHandler(workspace.slack_bot_token)
+
+        # 이메일 → User ID 변환
+        duplicate_names_with_user_id = {}
+        conversion_errors = []
+
+        for group_name, persons in duplicate_names_with_email.items():
+            duplicate_names_with_user_id[group_name] = []
+
+            for person in persons:
+                email = person.get('email', '')
+                display_name = person.get('display_name', '')
+                sheet_row = person.get('sheet_row')
+                note = person.get('note', '')
+
+                if not email:
+                    conversion_errors.append(f"{group_name} - {display_name}: 이메일이 없습니다.")
+                    continue
+
+                # 이메일로 User ID 찾기
+                user_id = slack_handler.get_user_id_by_email(email)
+
+                if not user_id:
+                    conversion_errors.append(f"{group_name} - {email}: User ID를 찾을 수 없습니다.")
+                    continue
+
+                duplicate_names_with_user_id[group_name].append({
+                    'email': email,  # 이메일도 함께 저장 (참고용)
+                    'user_id': user_id,
+                    'display_name': display_name,
+                    'sheet_row': sheet_row,
+                    'note': note
+                })
+
+        # 변환 오류가 있으면 경고와 함께 반환
+        if conversion_errors:
+            return jsonify({
+                'success': False,
+                'error': '일부 이메일을 User ID로 변환할 수 없습니다.',
+                'details': conversion_errors
+            }), 400
+
+        # config.json 업데이트
+        workspace._config['duplicate_names'] = duplicate_names_with_user_id
+        import json
+        with open(workspace.config_file, 'w', encoding='utf-8') as f:
+            json.dump(workspace._config, f, ensure_ascii=False, indent=2)
+
+        # 워크스페이스 매니저 리로드
+        workspace_manager.reload()
+
+        return jsonify({
+            'success': True,
+            'message': '동명이인 정보가 저장되었습니다.',
+            'converted_data': duplicate_names_with_user_id
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 def open_browser():
     """브라우저 자동 열기"""
     webbrowser.open('http://127.0.0.1:5000')
@@ -562,18 +676,19 @@ def open_browser():
 
 # === 스케줄러 관련 함수 ===
 
-def create_attendance_thread_job(workspace):
+def create_attendance_thread_job(workspace, schedule_item):
     """출석 스레드 자동 생성 작업"""
     try:
-        print(f"\n[자동실행] 출석 스레드 생성 시작 - {workspace.display_name}")
+        day = schedule_item.get('day', '')
+        print(f"\n[자동실행] 출석 스레드 생성 시작 - {workspace.display_name} ({day})")
         print(f"시간: {datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')}")
 
-        schedule = workspace.auto_schedule
-        if not schedule or not schedule.get('enabled'):
+        schedule_config = workspace.auto_schedule
+        if not schedule_config or not schedule_config.get('enabled'):
             return
 
         slack_handler = SlackHandler(workspace.slack_bot_token)
-        message = schedule.get('create_thread_message', '📢 출석 스레드\n\n오늘 출석 체크합니다!')
+        message = schedule_config.get('create_thread_message', '@channel\n📢 출석 스레드입니다.\n\n"이름/출석했습니다" 형식으로 댓글 달아주세요!')
 
         # 메시지 전송
         result = slack_handler.post_message(workspace.slack_channel_id, message)
@@ -589,14 +704,17 @@ def create_attendance_thread_job(workspace):
         traceback.print_exc()
 
 
-def check_attendance_job(workspace):
+def check_attendance_job(workspace, schedule_item):
     """출석 집계 자동 실행 작업"""
     try:
-        print(f"\n[자동실행] 출석 집계 시작 - {workspace.display_name}")
+        day = schedule_item.get('day', '')
+        check_column = schedule_item.get('check_attendance_column', 'K')
+
+        print(f"\n[자동실행] 출석 집계 시작 - {workspace.display_name} ({day}, {check_column}열)")
         print(f"시간: {datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')}")
 
-        schedule = workspace.auto_schedule
-        if not schedule or not schedule.get('enabled'):
+        schedule_config = workspace.auto_schedule
+        if not schedule_config or not schedule_config.get('enabled'):
             return
 
         # 1. 슬랙 연결
@@ -619,9 +737,10 @@ def check_attendance_job(workspace):
             print("✗ 댓글을 가져올 수 없습니다.")
             return
 
-        # 4. 출석 파싱
+        # 4. 출석 파싱 (동명이인 정보 전달)
         parser = AttendanceParser()
-        attendance_list = parser.parse_attendance_replies(replies)
+        duplicate_names = workspace.duplicate_names if hasattr(workspace, 'duplicate_names') else {}
+        attendance_list = parser.parse_attendance_replies(replies, duplicate_names)
 
         if not attendance_list:
             print("✗ 출석한 학생이 없습니다.")
@@ -647,33 +766,43 @@ def check_attendance_job(workspace):
             return
 
         # 7. 출석 매칭
-        # 자동 열 증가 모드 확인
-        auto_column_enabled = schedule.get('auto_column_enabled', False)
-        start_column = schedule.get('start_column', 'H')
-        end_column = schedule.get('end_column', 'O')
-        current_column = schedule.get('check_attendance_column', 'K')
+        # 스케줄 아이템에서 열 정보 가져오기
+        column_input = check_column
+        column_index = column_letter_to_index(column_input)
+
+        # 자동 열 증가 모드 확인 (전역 설정)
+        auto_column_enabled = schedule_config.get('auto_column_enabled', False)
+        start_column = schedule_config.get('start_column', 'H')
+        end_column = schedule_config.get('end_column', 'O')
 
         # 자동 열 증가가 활성화되어 있으면 다음 열로 이동
         if auto_column_enabled and start_column and end_column:
-            # 현재 열 사용
-            column_input = current_column
-            column_index = column_letter_to_index(column_input)
-
             print(f"📍 자동 열 증가 모드: {start_column} ~ {end_column}")
-            print(f"   현재 열: {current_column}")
+            print(f"   현재 열: {column_input}")
 
             # 끝 열에 도달했는지 확인
-            if current_column == end_column:
-                print(f"🎯 끝 열({end_column})에 도달했습니다. 스케줄을 비활성화합니다.")
+            if column_input == end_column:
+                print(f"🎯 끝 열({end_column})에 도달했습니다. 해당 스케줄을 제거합니다.")
 
-                # 스케줄 비활성화
-                schedule['enabled'] = False
-                workspace.save_schedule(schedule)
+                # 해당 스케줄 아이템 제거
+                schedules_list = schedule_config.get('schedules', [])
+                updated_schedules = [s for s in schedules_list if not (s.get('day') == day and s.get('check_attendance_column') == check_column)]
 
-                # 스케줄러에서 제거
+                # 모든 스케줄이 제거되면 enabled를 False로
+                if not updated_schedules:
+                    schedule_config['enabled'] = False
+
+                schedule_config['schedules'] = updated_schedules
+                workspace.save_schedule(schedule_config)
+
+                # 스케줄러에서 해당 작업 제거 (모든 인덱스)
                 try:
-                    scheduler.remove_job(f'create_thread_{workspace.name}')
-                    scheduler.remove_job(f'check_attendance_{workspace.name}')
+                    # 해당 워크스페이스와 요일의 모든 작업 찾아서 제거
+                    all_jobs = scheduler.get_jobs()
+                    for job in all_jobs:
+                        if (f'create_thread_{workspace.name}_{day}' in job.id or
+                            f'check_attendance_{workspace.name}_{day}' in job.id):
+                            scheduler.remove_job(job.id)
                     print(f"✓ 스케줄러에서 작업 제거 완료")
                 except Exception as e:
                     print(f"⚠️ 스케줄러 작업 제거 중 오류 (무시 가능): {e}")
@@ -683,34 +812,32 @@ def check_attendance_job(workspace):
                 if notification_user:
                     completion_message = f"""🎉 [출석체크 완료 알림]
 
-📊 **전체 출석체크가 완료되었습니다!**
+📊 **{day} 출석체크가 완료되었습니다!**
 
 ✅ 시작 열: {start_column}
 ✅ 끝 열: {end_column}
-✅ 마지막 실행 열: {current_column}
+✅ 마지막 실행 열: {column_input}
 
-자동 스케줄이 비활성화되었습니다.
-다시 시작하려면 웹 UI에서 스케줄을 재설정해주세요.
+해당 요일의 자동 스케줄이 비활성화되었습니다.
 
 워크스페이스: {workspace.display_name}
 """
                     slack_handler.send_dm(notification_user, completion_message)
                     print(f"✓ 완료 알림 DM 전송 완료")
-
-                column_index = column_letter_to_index(column_input)
             else:
                 # 다음 실행을 위해 열 증가
-                next_column = get_next_column(current_column, start_column, end_column)
+                next_column = get_next_column(column_input, start_column, end_column)
                 print(f"   다음 열: {next_column}")
 
-                # config 업데이트
-                schedule['check_attendance_column'] = next_column
-                workspace.save_schedule(schedule)
-                column_index = column_letter_to_index(column_input)
-        else:
-            # 수동 모드: 지정된 열 사용
-            column_input = current_column
-            column_index = column_letter_to_index(column_input)
+                # 해당 스케줄 아이템의 열 업데이트
+                schedules_list = schedule_config.get('schedules', [])
+                for s in schedules_list:
+                    if s.get('day') == day and s.get('check_attendance_column') == check_column:
+                        s['check_attendance_column'] = next_column
+                        break
+
+                schedule_config['schedules'] = schedules_list
+                workspace.save_schedule(schedule_config)
 
         updates = []
         matched_names = []
@@ -718,7 +845,18 @@ def check_attendance_job(workspace):
 
         for attendance in attendance_list:
             name = attendance['name']
-            if name in students:
+            sheet_row = attendance.get('sheet_row')  # 동명이인인 경우 직접 지정된 행 번호
+
+            # 동명이인으로 직접 행 번호가 지정된 경우
+            if sheet_row is not None:
+                updates.append({
+                    'name': name,
+                    'row': sheet_row,
+                    'column': column_index,
+                    'status': AttendanceStatus.PRESENT
+                })
+                matched_names.append(name)
+            elif name in students:
                 row = students[name]
                 updates.append({
                     'name': name,
@@ -750,7 +888,7 @@ def check_attendance_job(workspace):
         notification_user = workspace.notification_user_id or thread_user
 
         # 스레드 댓글 (사용자 정의 메시지 또는 기본 메시지)
-        completion_message_template = schedule.get('check_completion_message', '[자동] 출석 체크를 완료했습니다.\n출석: {present}명 / 미출석: {absent}명')
+        completion_message_template = schedule_config.get('check_completion_message', '[자동] 출석 체크를 완료했습니다.\n출석: {present}명 / 미출석: {absent}명')
         completion_message = completion_message_template.format(
             present=len(matched_names),
             absent=len(absent_names),
@@ -797,40 +935,46 @@ def setup_scheduler():
     workspaces = workspace_manager.get_all_workspaces()
 
     for workspace in workspaces:
-        schedule = workspace.auto_schedule
+        schedule_config = workspace.auto_schedule
 
-        if not schedule or not schedule.get('enabled'):
+        if not schedule_config or not schedule_config.get('enabled'):
+            continue
+
+        schedules_list = schedule_config.get('schedules', [])
+
+        if not schedules_list:
             continue
 
         print(f"\n📅 스케줄 등록: {workspace.display_name}")
 
-        # 출석 스레드 생성 스케줄
-        create_day = schedule.get('create_thread_day')
-        create_time = schedule.get('create_thread_time')
+        # 각 스케줄에 대해 작업 등록
+        for idx, schedule_item in enumerate(schedules_list):
+            day = schedule_item.get('day')
+            create_time = schedule_item.get('create_thread_time')
+            check_time = schedule_item.get('check_attendance_time')
+            check_column = schedule_item.get('check_attendance_column')
 
-        if create_day and create_time:
-            hour, minute = create_time.split(':')
-            scheduler.add_job(
-                func=lambda ws=workspace: create_attendance_thread_job(ws),
-                trigger=CronTrigger(day_of_week=create_day, hour=int(hour), minute=int(minute)),
-                id=f'create_thread_{workspace.name}',
-                replace_existing=True
-            )
-            print(f"  ✓ 출석 스레드 생성: 매주 {create_day} {create_time}")
+            # 출석 스레드 생성 스케줄
+            if day and create_time:
+                hour, minute = create_time.split(':')
+                scheduler.add_job(
+                    func=lambda ws=workspace, sched_item=schedule_item: create_attendance_thread_job(ws, sched_item),
+                    trigger=CronTrigger(day_of_week=day, hour=int(hour), minute=int(minute)),
+                    id=f'create_thread_{workspace.name}_{day}_{idx}',
+                    replace_existing=True
+                )
+                print(f"  ✓ 출석 스레드 생성: 매주 {day} {create_time}")
 
-        # 출석 집계 스케줄
-        check_day = schedule.get('check_attendance_day')
-        check_time = schedule.get('check_attendance_time')
-
-        if check_day and check_time:
-            hour, minute = check_time.split(':')
-            scheduler.add_job(
-                func=lambda ws=workspace: check_attendance_job(ws),
-                trigger=CronTrigger(day_of_week=check_day, hour=int(hour), minute=int(minute)),
-                id=f'check_attendance_{workspace.name}',
-                replace_existing=True
-            )
-            print(f"  ✓ 출석 집계: 매주 {check_day} {check_time}")
+            # 출석 집계 스케줄
+            if day and check_time:
+                hour, minute = check_time.split(':')
+                scheduler.add_job(
+                    func=lambda ws=workspace, sched_item=schedule_item: check_attendance_job(ws, sched_item),
+                    trigger=CronTrigger(day_of_week=day, hour=int(hour), minute=int(minute)),
+                    id=f'check_attendance_{workspace.name}_{day}_{idx}',
+                    replace_existing=True
+                )
+                print(f"  ✓ 출석 집계: 매주 {day} {check_time} (열: {check_column})")
 
 
 def restart_scheduler():

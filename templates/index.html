@@ -35,6 +35,9 @@
                     <p><strong>채널 ID:</strong> <span id="channel-id"></span></p>
                     <p><strong>시트 이름:</strong> <span id="sheet-name"></span></p>
                 </div>
+                <div id="workspace-actions" style="display: none; margin-top: 15px;">
+                    <button id="manage-duplicates-btn" class="btn btn-secondary">👥 동명이인 관리</button>
+                </div>
             </section>
 
             <!-- 워크스페이스 추가 모달 -->
@@ -169,7 +172,7 @@
                 <div class="form-group">
                     <label for="column-input">출석체크할 열</label>
                     <input type="text" id="column-input" class="form-control small"
-                           value="K" maxlength="2" placeholder="K">
+                           value="H" maxlength="2" placeholder="H">
                     <small>구글 시트에서 출석을 표시할 열 (예: H, K, L)</small>
                 </div>
 
@@ -207,77 +210,27 @@
                 </div>
 
                 <div id="schedule-settings" style="display: none;">
+                    <!-- 전역 설정 -->
                     <div class="schedule-section">
-                        <h3>📝 출석 스레드 자동 생성</h3>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="create-thread-day">요일</label>
-                                <select id="create-thread-day" class="form-control">
-                                    <option value="">선택하세요...</option>
-                                    <option value="mon">월요일</option>
-                                    <option value="tue">화요일</option>
-                                    <option value="wed">수요일</option>
-                                    <option value="thu">목요일</option>
-                                    <option value="fri">금요일</option>
-                                    <option value="sat">토요일</option>
-                                    <option value="sun">일요일</option>
-                                </select>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="create-thread-time">시간 (한국 시간)</label>
-                                <input type="time" id="create-thread-time" class="form-control">
-                            </div>
-                        </div>
+                        <h3>⚙️ 전역 설정</h3>
 
                         <div class="form-group">
                             <label for="thread-message">스레드 메시지</label>
-                            <textarea id="thread-message" class="form-control" rows="3"
-                                      placeholder="📢 출석 스레드입니다.&#10;&#10;&quot;이름/출석했습니다&quot; 형식으로 댓글 달아주세요!"></textarea>
-                            <small>출석 스레드 생성 시 보낼 메시지 (기본값: 📢 출석 스레드입니다.)</small>
-                        </div>
-                    </div>
+                            <textarea id="thread-message" class="form-control" rows="3">@channel
+📢 출석 스레드입니다.
 
-                    <div class="schedule-section">
-                        <h3>📊 출석 집계 자동 실행</h3>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="check-attendance-day">요일</label>
-                                <select id="check-attendance-day" class="form-control">
-                                    <option value="">선택하세요...</option>
-                                    <option value="mon">월요일</option>
-                                    <option value="tue">화요일</option>
-                                    <option value="wed">수요일</option>
-                                    <option value="thu">목요일</option>
-                                    <option value="fri">금요일</option>
-                                    <option value="sat">토요일</option>
-                                    <option value="sun">일요일</option>
-                                </select>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="check-attendance-time">시간 (한국 시간)</label>
-                                <input type="time" id="check-attendance-time" class="form-control">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="check-attendance-column">시작 열 (현재 열)</label>
-                                <input type="text" id="check-attendance-column" class="form-control small"
-                                       value="K" maxlength="2" placeholder="K">
-                            </div>
+"이름/출석했습니다" 형식으로 댓글 달아주세요!</textarea>
+                            <small>출석 스레드 생성 시 보낼 메시지</small>
                         </div>
 
-                        <div class="form-group" style="margin-top: 15px;">
+                        <div class="form-group">
                             <label for="completion-message">출석 완료 댓글 메시지</label>
-                            <textarea id="completion-message" class="form-control" rows="2"
-                                      placeholder="[자동] 출석 체크를 완료했습니다.&#10;출석: {present}명 / 미출석: {absent}명"></textarea>
-                            <small>출석 집계 완료 시 스레드에 댓글로 보낼 메시지<br>
-                                사용 가능한 변수: <code>{present}</code> (출석자 수), <code>{absent}</code> (미출석자 수), <code>{total}</code> (총 인원)</small>
+                            <textarea id="completion-message" class="form-control" rows="2">[자동] 출석 체크를 완료했습니다.
+출석: {present}명 / 미출석: {absent}명</textarea>
+                            <small>사용 가능한 변수: <code>{present}</code>, <code>{absent}</code>, <code>{total}</code></small>
                         </div>
 
-                        <div class="checkbox-group" style="margin-top: 15px;">
+                        <div class="checkbox-group">
                             <label>
                                 <input type="checkbox" id="auto-column-enabled">
                                 자동 열 증가 모드 활성화
@@ -306,40 +259,23 @@
                             <div class="info-box" style="margin-top: 10px;">
                                 <p><strong>💡 작동 방식:</strong></p>
                                 <p style="margin: 5px 0;">• 1주차: H열 → 2주차: I열 → 3주차: J열 → ...</p>
-                                <p style="margin: 5px 0; color: #d9534f; font-weight: 500;">• <strong>끝 열에 도달하면 자동으로 스케줄이 비활성화됩니다</strong></p>
-                                <p style="margin: 5px 0;">• <strong>위 "시작 열"</strong>이 현재 출석체크할 열입니다</p>
-                                <p style="margin: 5px 0; color: #007aff;">• ✉️ 스케줄 완료 시 DM으로 알림을 받게 됩니다</p>
+                                <p style="margin: 5px 0; color: #d9534f; font-weight: 500;">• <strong>끝 열에 도달하면 자동으로 해당 스케줄이 비활성화됩니다</strong></p>
                             </div>
+                        </div>
+
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label for="notification-user-id">알림 수신자 (선택)</label>
+                            <input type="text" id="notification-user-id" class="form-control"
+                                   placeholder="이메일 주소 또는 User ID (빈칸이면 스레드 작성자에게 전송)">
+                            <small>슬랙 이메일 또는 User ID (U로 시작)</small>
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label for="notification-user-id">알림 수신자 (선택)</label>
-                        <input type="text" id="notification-user-id" class="form-control"
-                               placeholder="이메일 주소 또는 User ID (빈칸이면 스레드 작성자에게 전송)">
-                        <div class="info-box" style="margin-top: 8px; padding: 10px; font-size: 0.9rem;">
-                            <p><strong>💡 두 가지 방법 모두 사용 가능:</strong></p>
-
-                            <div style="margin: 10px 0; padding: 10px; background: #e8f5e9; border-radius: 4px;">
-                                <p><strong>✅ 방법 1: 이메일 주소 (추천)</strong></p>
-                                <p style="margin: 5px 0;">
-                                    슬랙 프로필에서 보이는 이메일 주소를 그대로 입력<br>
-                                    예: <code>kzm0502@igini.co.kr</code>
-                                </p>
-                            </div>
-
-                            <div style="margin: 10px 0; padding: 10px; background: #fff3cd; border-radius: 4px;">
-                                <p><strong>✅ 방법 2: User ID</strong></p>
-                                <p style="margin: 5px 0;">
-                                    <code>U</code>로 시작하는 ID 입력<br>
-                                    예: <code>U09L9UWC5L6</code>
-                                </p>
-                            </div>
-
-                            <p style="margin-top: 8px; color: #d9534f;">
-                                ❌ <strong>잘못된 형식:</strong> <code>D</code>나 <code>C</code>로 시작하는 채널 ID
-                            </p>
-                        </div>
+                    <!-- 스케줄 목록 -->
+                    <div class="schedule-section">
+                        <h3>📅 요일별 스케줄</h3>
+                        <div id="schedules-list"></div>
+                        <button type="button" id="add-schedule-btn" class="btn btn-secondary" style="margin-top: 10px;">➕ 스케줄 추가</button>
                     </div>
 
                     <button id="save-schedule-btn" class="btn btn-primary">💾 스케줄 저장 (예약 등록, 즉시 실행 아님)</button>
@@ -352,8 +288,99 @@
                 <div id="schedule-status-content">
                     <p class="text-center">예약된 스케줄이 없습니다.</p>
                 </div>
-                <button id="refresh-schedule-btn" class="btn btn-primary" style="margin-top: 15px;">🔄 새로고침</button>
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <button id="refresh-schedule-btn" class="btn btn-primary">🔄 새로고침</button>
+                </div>
             </section>
+
+            <!-- 스케줄 수정 모달 -->
+            <div id="edit-schedule-modal" class="modal" style="display: none;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>✏️ 스케줄 수정</h2>
+                        <span class="modal-close">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" id="edit-workspace-name" />
+
+                        <div class="form-group">
+                            <label>워크스페이스</label>
+                            <input type="text" id="edit-workspace-display" class="form-control" disabled />
+                        </div>
+
+                        <div class="form-group">
+                            <label for="edit-thread-message">스레드 메시지</label>
+                            <textarea id="edit-thread-message" class="form-control" rows="3"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="edit-completion-message">출석 완료 댓글 메시지</label>
+                            <textarea id="edit-completion-message" class="form-control" rows="2"></textarea>
+                        </div>
+
+                        <div class="checkbox-group">
+                            <label>
+                                <input type="checkbox" id="edit-auto-column-enabled">
+                                자동 열 증가 모드
+                            </label>
+                        </div>
+
+                        <div id="edit-auto-column-settings" style="display: none; margin-top: 15px;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="edit-start-column">시작 열</label>
+                                    <input type="text" id="edit-start-column" class="form-control small" maxlength="2">
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit-end-column">끝 열</label>
+                                    <input type="text" id="edit-end-column" class="form-control small" maxlength="2">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="edit-notification-user-id">알림 수신자</label>
+                            <input type="text" id="edit-notification-user-id" class="form-control">
+                        </div>
+
+                        <h3 style="margin-top: 20px;">📅 요일별 스케줄</h3>
+                        <div id="edit-schedules-list"></div>
+                        <button type="button" id="edit-add-schedule-btn" class="btn btn-secondary" style="margin-top: 10px;">➕ 스케줄 추가</button>
+                    </div>
+                    <div class="modal-footer">
+                        <button id="cancel-edit-schedule-btn" class="btn btn-secondary">취소</button>
+                        <button id="submit-edit-schedule-btn" class="btn btn-success">✓ 저장</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 동명이인 관리 모달 -->
+            <div id="duplicate-names-modal" class="modal" style="display: none;">
+                <div class="modal-content" style="max-width: 800px;">
+                    <div class="modal-header">
+                        <h2>👥 동명이인 관리</h2>
+                        <span class="modal-close">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" id="duplicate-workspace-name" />
+
+                        <div class="form-group">
+                            <label>워크스페이스</label>
+                            <p id="duplicate-workspace-display" style="margin: 5px 0; font-weight: bold; color: #333;"></p>
+                        </div>
+
+                        <div id="duplicate-names-list" style="margin-top: 20px;">
+                            <!-- 동명이인 그룹이 여기에 표시됨 -->
+                        </div>
+
+                        <button type="button" id="add-duplicate-group-btn" class="btn btn-secondary" style="margin-top: 15px;">➕ 동명이인 그룹 추가</button>
+                    </div>
+                    <div class="modal-footer">
+                        <button id="cancel-duplicate-btn" class="btn btn-secondary">취소</button>
+                        <button id="save-duplicate-btn" class="btn btn-success">✓ 저장</button>
+                    </div>
+                </div>
+            </div>
 
             <!-- 실행 버튼 -->
             <section class="card">

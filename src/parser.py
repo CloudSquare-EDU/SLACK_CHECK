@@ -59,43 +59,82 @@ class AttendanceParser:
         """
         return name.strip()
 
-    def parse_attendance_replies(self, replies: List[Dict]) -> List[Dict]:
+    def parse_attendance_replies(self, replies: List[Dict], duplicate_names: Dict = None) -> List[Dict]:
         """
         댓글 리스트에서 출석 정보 파싱
 
         Args:
             replies (List[Dict]): 슬랙 댓글 리스트 (user_info 포함)
+            duplicate_names (Dict): 동명이인 매핑 정보
+                예: {"홍길동": [{"user_id": "U123", "display_name": "홍길동_컴공", "sheet_row": 5}, ...]}
 
         Returns:
             List[Dict]: 파싱된 출석 정보 리스트
         """
         print(f"\n[파싱] 출석 댓글 파싱 중...")
 
+        if duplicate_names is None:
+            duplicate_names = {}
+
         attendance_list = []
-        seen_names = set()  # 중복 제거용
+        seen_names = set()  # 일반 이름 기준 중복 제거
+        seen_user_ids = set()  # 동명이인용 User ID 기준 중복 제거
 
         for reply in replies:
             text = reply.get('text', '')
             user_info = reply.get('user_info')
+            user_id = reply.get('user_id')
 
             # 텍스트에서 이름 추출
             name = self.extract_name_from_text(text)
 
             if name:
-                # 중복 체크 (같은 사람이 여러 번 댓글 작성한 경우)
-                if name not in seen_names:
-                    attendance_list.append({
-                        'name': name,
-                        'text': text,
-                        'user_id': reply.get('user_id'),
-                        'user_info': user_info,
-                        'timestamp': reply.get('timestamp'),
-                        'source': 'text_pattern'  # 텍스트 패턴으로 추출
-                    })
-                    seen_names.add(name)
-                    print(f"  ✓ {name} - 출석 확인")
+                # 동명이인 처리: 댓글에서 추출한 이름이 duplicate_names에 있는지 확인
+                final_name = name
+                sheet_row = None
+
+                if name in duplicate_names:
+                    # 동명이인: User ID 중복 체크
+                    if user_id in seen_user_ids:
+                        print(f"  ⚠ User ID {user_id} - 중복 (이미 출석 처리됨)")
+                        continue
+
+                    # User ID로 정확한 이름과 행 번호 찾기
+                    matched = False
+                    print(f"  [디버그] '{name}' 동명이인 그룹 발견, User ID: {user_id}")
+                    for person in duplicate_names[name]:
+                        print(f"    - 비교: {person.get('user_id')} vs {user_id}")
+                        if person.get('user_id') == user_id:
+                            final_name = person.get('display_name', name)
+                            sheet_row = person.get('sheet_row')
+                            matched = True
+                            print(f"  ✓ {final_name} (동명이인 매칭: {name} → {final_name}, 행: {sheet_row})")
+                            break
+
+                    if not matched:
+                        print(f"  ⚠ {name} - 동명이인 그룹에 있지만 User ID {user_id} 매칭 실패")
+                        print(f"     등록된 User ID들: {[p.get('user_id') for p in duplicate_names[name]]}")
+                        continue  # 매칭 실패 시 스킵
+
+                    seen_user_ids.add(user_id)  # 동명이인은 User ID로 중복 체크
                 else:
-                    print(f"  ⚠ {name} - 중복 (이미 출석 처리됨)")
+                    # 일반 이름: 이름 중복 체크
+                    if name in seen_names:
+                        print(f"  ⚠ {name} - 중복 (이미 출석 처리됨)")
+                        continue
+
+                    print(f"  ✓ {final_name} - 출석 확인")
+                    seen_names.add(name)  # 일반 이름은 이름으로 중복 체크
+
+                attendance_list.append({
+                    'name': final_name,
+                    'text': text,
+                    'user_id': user_id,
+                    'user_info': user_info,
+                    'timestamp': reply.get('timestamp'),
+                    'source': 'text_pattern',  # 텍스트 패턴으로 추출
+                    'sheet_row': sheet_row  # 동명이인인 경우 직접 지정된 행 번호
+                })
             else:
                 # 패턴 매칭 실패 시 실명으로 시도
                 if user_info:
@@ -110,12 +149,14 @@ class AttendanceParser:
                             attendance_list.append({
                                 'name': fallback_name,
                                 'text': text,
-                                'user_id': reply.get('user_id'),
+                                'user_id': user_id,
                                 'user_info': user_info,
                                 'timestamp': reply.get('timestamp'),
-                                'source': 'slack_name'  # 슬랙 이름으로 추출
+                                'source': 'slack_name',  # 슬랙 이름으로 추출
+                                'sheet_row': None
                             })
                             seen_names.add(fallback_name)
+                            # seen_user_ids.add(user_id)  # [주석처리] 추후 필요 시 활성화
                             print(f"  ✓ {fallback_name} - 출석 확인 (슬랙 이름 사용)")
 
         print(f"\n✓ 출석 파싱 완료: {len(attendance_list)}명")

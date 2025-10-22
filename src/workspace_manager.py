@@ -111,6 +111,11 @@ class WorkspaceConfig:
         """자동 실행 스케줄 설정"""
         return self._config.get('auto_schedule')
 
+    @property
+    def duplicate_names(self) -> Optional[Dict]:
+        """동명이인 관리 설정"""
+        return self._config.get('duplicate_names', {})
+
     def save_schedule(self, schedule: Dict) -> bool:
         """
         스케줄 설정 저장
