@@ -25,6 +25,10 @@ class WorkspaceConfig:
         # 설정 로드
         self._config = self._load_config()
 
+        # 자동 마이그레이션 수행
+        if self._migrate_config():
+            self._save_config()
+
     def _load_config(self) -> Dict:
         """config.json 로드"""
         if not self.config_file.exists():
@@ -32,6 +36,34 @@ class WorkspaceConfig:
 
         with open(self.config_file, 'r', encoding='utf-8') as f:
             return json.load(f)
+
+    def _migrate_config(self) -> bool:
+        """
+        config.json을 최신 버전으로 자동 마이그레이션
+
+        Returns:
+            bool: 변경사항 발생 여부
+        """
+        changed = False
+
+        # 1. auto_schedule이 없으면 빈 딕셔너리로 초기화
+        if 'auto_schedule' not in self._config:
+            self._config['auto_schedule'] = {}
+            changed = True
+            print(f"✓ [{self.display_name}] auto_schedule 필드 추가됨")
+
+        # 2. duplicate_names가 없으면 빈 딕셔너리로 초기화
+        if 'duplicate_names' not in self._config:
+            self._config['duplicate_names'] = {}
+            changed = True
+            print(f"✓ [{self.display_name}] duplicate_names 필드 추가됨")
+
+        return changed
+
+    def _save_config(self):
+        """설정 파일 저장"""
+        with open(self.config_file, 'w', encoding='utf-8') as f:
+            json.dump(self._config, f, ensure_ascii=False, indent=2)
 
     def is_valid(self) -> bool:
         """워크스페이스 설정이 유효한지 확인"""
@@ -136,6 +168,46 @@ class WorkspaceConfig:
         except Exception as e:
             print(f"✗ 스케줄 저장 실패: {e}")
             return False
+
+    def save_last_thread_info(self, thread_ts: str, date: str, column: str) -> bool:
+        """
+        마지막으로 생성한 스레드 정보 저장
+
+        Args:
+            thread_ts (str): 스레드 타임스탬프
+            date (str): 생성 날짜 (YYYY-MM-DD)
+            column (str): 출석 체크 열
+
+        Returns:
+            bool: 성공 여부
+        """
+        try:
+            if 'auto_schedule' not in self._config:
+                self._config['auto_schedule'] = {}
+
+            self._config['auto_schedule']['last_thread_info'] = {
+                'thread_ts': thread_ts,
+                'date': date,
+                'column': column
+            }
+
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(self._config, f, ensure_ascii=False, indent=2)
+
+            return True
+        except Exception as e:
+            print(f"✗ 스레드 정보 저장 실패: {e}")
+            return False
+
+    def get_last_thread_info(self) -> Optional[Dict]:
+        """
+        마지막으로 생성한 스레드 정보 가져오기
+
+        Returns:
+            Optional[Dict]: 스레드 정보 (thread_ts, date, column), 없으면 None
+        """
+        auto_schedule = self._config.get('auto_schedule', {})
+        return auto_schedule.get('last_thread_info')
 
 
 class WorkspaceManager:

@@ -183,7 +183,7 @@ class SlackHandler:
 
         return enriched_replies
 
-    def find_latest_attendance_thread(self, channel_id: str, keywords: List[str] = None, include_bot: bool = True) -> Optional[Dict]:
+    def find_latest_attendance_thread(self, channel_id: str, keywords: List[str] = None, include_bot: bool = True, bot_only: bool = False) -> Optional[Dict]:
         """
         채널에서 가장 최신 출석체크 스레드 찾기
 
@@ -191,6 +191,7 @@ class SlackHandler:
             channel_id (str): 채널 ID
             keywords (List[str]): 검색 키워드 리스트 (기본값: ["출석 스레드", "출석체크", "출석"])
             include_bot (bool): 봇 메시지 포함 여부 (기본값: True)
+            bot_only (bool): 봇 메시지만 검색 (기본값: False)
 
         Returns:
             Optional[Dict]: 찾은 메시지 정보 (ts, text, user 등), 없으면 None
@@ -201,7 +202,10 @@ class SlackHandler:
         try:
             print(f"\n[Slack] 최신 출석체크 스레드 검색 중...")
             print(f"  - 검색 키워드: {', '.join(keywords)}")
-            print(f"  - 봇 메시지 포함: {include_bot}")
+            if bot_only:
+                print(f"  - 봇 메시지만 검색")
+            else:
+                print(f"  - 봇 메시지 포함: {include_bot}")
 
             # 최근 메시지 가져오기 (최대 100개)
             response = self.client.conversations_history(
@@ -217,6 +221,10 @@ class SlackHandler:
             # 키워드를 포함한 메시지 찾기 (최신순)
             for message in messages:
                 text = message.get('text', '').lower()
+
+                # 봇 메시지만 검색
+                if bot_only and not message.get('bot_id'):
+                    continue
 
                 # Bot 메시지 제외 (옵션)
                 if not include_bot and message.get('bot_id'):

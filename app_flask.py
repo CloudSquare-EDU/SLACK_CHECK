@@ -694,7 +694,16 @@ def create_attendance_thread_job(workspace, schedule_item):
         result = slack_handler.post_message(workspace.slack_channel_id, message)
 
         if result:
-            print(f"✓ 출석 스레드 생성 완료: {result['ts']}")
+            thread_ts = result['ts']
+            print(f"✓ 출석 스레드 생성 완료: {thread_ts}")
+
+            # Thread TS 저장
+            today = datetime.now(KST).strftime('%Y-%m-%d')
+            check_column = schedule_item.get('check_attendance_column', '')
+            if workspace.save_last_thread_info(thread_ts, today, check_column):
+                print(f"✓ Thread TS 저장 완료 (날짜: {today}, 열: {check_column})")
+            else:
+                print(f"⚠ Thread TS 저장 실패")
         else:
             print(f"✗ 출석 스레드 생성 실패")
 
@@ -720,16 +729,31 @@ def check_attendance_job(workspace, schedule_item):
         # 1. 슬랙 연결
         slack_handler = SlackHandler(workspace.slack_bot_token)
 
-        # 2. 최신 출석 스레드 찾기
-        thread_message = slack_handler.find_latest_attendance_thread(workspace.slack_channel_id)
-        if not thread_message:
+        # 2. Hybrid 방식으로 출석 스레드 찾기
+        thread_ts = None
+        thread_user = None
+        today = datetime.now(KST).strftime('%Y-%m-%d')
+
+        # 2-1. 저장된 Thread TS 확인 (Option 3)
+        last_thread_info = workspace.get_last_thread_info()
+        if last_thread_info and last_thread_info.get('date') == today:
+            thread_ts = last_thread_info.get('thread_ts')
+            print(f"✓ 저장된 Thread TS 사용: {thread_ts} (날짜: {today})")
+        else:
+            # 2-2. 검색으로 찾기 (Option 1 - 봇 메시지만 필터링)
+            print(f"⚠ 저장된 Thread TS 없음, 검색으로 찾기 시도...")
+            thread_message = slack_handler.find_latest_attendance_thread(workspace.slack_channel_id, bot_only=True)
+            if thread_message:
+                thread_ts = thread_message['ts']
+                thread_user = thread_message.get('user')
+                print(f"✓ 검색으로 출석 스레드 발견: {thread_ts}")
+            else:
+                print("✗ 출석 스레드를 찾을 수 없습니다.")
+                return
+
+        if not thread_ts:
             print("✗ 출석 스레드를 찾을 수 없습니다.")
             return
-
-        thread_ts = thread_message['ts']
-        thread_user = thread_message.get('user')
-
-        print(f"✓ 출석 스레드 발견: {thread_ts}")
 
         # 3. 댓글 수집
         replies = slack_handler.get_replies_with_user_info(workspace.slack_channel_id, thread_ts)
